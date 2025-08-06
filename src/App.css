@@ -614,3 +614,80 @@ margin-top: 10px;
 margin-top: 10px;
 
 }
+/* Add these styles to your App.css */
+
+.responses-history {
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 10px;
+}
+
+.analysis-block {
+  margin-bottom: 20px;
+  padding: 15px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background-color: #f9f9f9;
+}
+
+.analysis-block:last-child {
+  background-color: #fff;
+  border-color: #007bff;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
+}
+
+.analysis-timestamp {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #666;
+  font-weight: 500;
+}
+
+.latest-badge {
+  background-color: #28a745;
+  color: black;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.analyzing-badge {
+  background-color: #ffc107;
+  color: #000;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: bold;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.responses-history::-webkit-scrollbar {
+  width: 6px;
+}
+
+.responses-history::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.responses-history::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.responses-history::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+.response-text{
+  color: black;
+}

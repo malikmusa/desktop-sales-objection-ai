@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { SALES_FLOWCHART_XML } from './flow.js';
 import './App.css';
 
-// StreamingText component for ChatGPT-like streaming effect
+// Reusable StreamingText component
 const StreamingText = ({ text, showCursor = false }) => {
   const [displayedText, setDisplayedText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -10,9 +11,7 @@ const StreamingText = ({ text, showCursor = false }) => {
   const streamingIndexRef = useRef(0);
 
   useEffect(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
     if (text !== lastTextRef.current) {
       const previousText = lastTextRef.current;
@@ -29,9 +28,9 @@ const StreamingText = ({ text, showCursor = false }) => {
 
         const streamChars = () => {
           if (streamingIndexRef.current < newContent.length) {
-            const currentStreamedText =
-              previousText + newContent.slice(0, streamingIndexRef.current + 1);
-            setDisplayedText(currentStreamedText);
+            setDisplayedText(
+              previousText + newContent.slice(0, streamingIndexRef.current + 1)
+            );
             streamingIndexRef.current++;
             timeoutRef.current = setTimeout(streamChars, 25);
           } else {
@@ -40,25 +39,15 @@ const StreamingText = ({ text, showCursor = false }) => {
           }
         };
 
-        if (newContent.length > 0) {
-          streamChars();
-        } else {
-          setIsStreaming(false);
-          setDisplayedText(newText);
-        }
+        newContent.length > 0 ? streamChars() : setIsStreaming(false);
       } else {
         setDisplayedText(newText);
         setIsStreaming(false);
       }
-
       lastTextRef.current = newText;
     }
 
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
+    return () => timeoutRef.current && clearTimeout(timeoutRef.current);
   }, [text]);
 
   useEffect(() => {
@@ -78,7 +67,7 @@ const StreamingText = ({ text, showCursor = false }) => {
   );
 };
 
-// Sales Suggestions Panel Component
+// Updated SalesSuggestionsPanel component with client-triggered analysis
 const SalesSuggestionsPanel = ({
   conversation,
   isAnalyzing,
@@ -86,69 +75,21 @@ const SalesSuggestionsPanel = ({
   openaiApiKey,
   setIsAnalyzing,
   isListening,
+  // Add these new props from the main component
+  conversationHistory,
+  clientAccumulatedText,
 }) => {
-  const [suggestions, setSuggestions] = useState([]);
-  const [obligations, setObligations] = useState([]);
-  const [error, setError] = useState('');
-  const [lastAnalyzedLength, setLastAnalyzedLength] = useState(0);
   const [analysisHistory, setAnalysisHistory] = useState([]);
+  const [error, setError] = useState('');
+  const [lastAnalyzedClientText, setLastAnalyzedClientText] = useState('');
   const analysisTimeoutRef = useRef(null);
   const lastAnalysisTimeRef = useRef(0);
 
-  // Real-time analysis effect
-  useEffect(() => {
-    if (!isListening || !conversation || !openaiApiKey) {
-      return;
-    }
-
-    const conversationLength = conversation.length;
-    const minInterval = 5000; // Minimum 5 seconds between analyses
-    const minNewContent = 50; // Minimum 50 characters of new content
-    const now = Date.now();
-
-    // Check if we have enough new content and enough time has passed
-    const hasEnoughNewContent =
-      conversationLength > lastAnalyzedLength + minNewContent;
-    const hasEnoughTimePassed = now - lastAnalysisTimeRef.current > minInterval;
-
-    if (hasEnoughNewContent && hasEnoughTimePassed) {
-      // Clear existing timeout
-      if (analysisTimeoutRef.current) {
-        clearTimeout(analysisTimeoutRef.current);
-      }
-
-      // Set timeout for analysis (debounce)
-      analysisTimeoutRef.current = setTimeout(() => {
-        analyzeConversation();
-      }, 2000); // 2 second debounce
-    }
-
-    return () => {
-      if (analysisTimeoutRef.current) {
-        clearTimeout(analysisTimeoutRef.current);
-      }
-    };
-  }, [conversation, openaiApiKey, isListening, lastAnalyzedLength]);
-
-  // Error handling for missing API key
-  useEffect(() => {
-    if (isListening && !openaiApiKey) {
-      setError(
-        'OpenAI API key required for real-time analysis. Please configure in Settings.'
-      );
-    } else if (openaiApiKey) {
-      setError('');
-    }
-  }, [isListening, openaiApiKey]);
-
-  const analyzeConversation = async () => {
+  const analyzeConversation = useCallback(async () => {
     if (!conversation || !openaiApiKey || !isListening) return;
 
     const now = Date.now();
-    if (now - lastAnalysisTimeRef.current < 2000) {
-      // Prevent too frequent calls
-      return;
-    }
+    if (now - lastAnalysisTimeRef.current < 500) return; // Prevent too frequent calls
 
     setError('');
     setIsAnalyzing(true);
@@ -164,60 +105,63 @@ const SalesSuggestionsPanel = ({
             Authorization: `Bearer ${openaiApiKey}`,
           },
           body: JSON.stringify({
-            model: 'gpt-4o',
+            model: 'gpt-4o-mini',
             messages: [
               {
                 role: 'system',
-                content: `You are a real-time AI sales coach providing INSTANT analysis during live sales conversations.
+                content: `You are a real-time AI sales coaching with access to a complete sales conversation flowchart in XML format. 
 
-CONTEXT: This is a LIVE conversation happening RIGHT NOW. The salesperson needs immediate, actionable guidance to influence the client's decision in real-time.
+Here is the complete sales flowchart XML document:
 
+${SALES_FLOWCHART_XML}
+
+This XML contains a comprehensive sales conversation flowchart with:
+- Opening qualification questions
+- Business model assessment paths
+- Problem discovery sequences
+- Goal setting frameworks
+- Objection handling scripts
+- Closing sequences
+- All the connecting logic and decision trees
+
+Use this flowchart to provide specific sales coaching advice, scripts, and next steps based on where the conversation is in the flow.
+
+Analyze the XML structure to understand:
+- The sequence of questions
+- The branching logic based on responses
+- The specific scripts and reframes
+- The objection handling frameworks
+- The closing techniques
+
+Provide actionable guidance based on this complete sales methodology. 
+ 
 CONVERSATION FORMAT:
 - "Client:" = prospect/client speaking
 - "You:" = salesperson speaking
 
-
 **Behavior Rules:**
-- Don’t write messages for the client or salesperson — only give suggestions after the client speaks.
-- Keep suggestions short (1–2 lines) and conversational.
-- Use simple, human language. Avoid sounding robotic.
-- Stay neutral and non-pushy, but persuasive and helpful.
-- Never use technical jargon unless the client uses it first.
+- Keep suggestions short (1–3 lines) and conversational
+- Use simple, human language
+- Stay neutral and non-pushy, but persuasive
+- Watch for objection triggers like "not sure," "too expensive," "need to think," etc.
+- Focus on what the salesperson should say NEXT based on what the client just said
 
----
-
-**Trigger Words to Watch For (examples):**
-“not sure,” “too expensive,” “need to think,” “I already have,” “I’ll talk to my partner,” “maybe later,” “sounds interesting but…,” “let me think about it,” “I can’t afford that right now,” “we’re on a tight budget,” “we need to get quotes from others,” “this isn’t the right time,” “we’re not ready yet,” “check back with us next quarter,” “I still have questions,” “I don’t know if this will work for us,” “I need more time to decide,” “I need to check with my boss,” “my manager makes the final decision,” “we already have a vendor,” “we’re happy with our current provider,” “we built something in-house,” “this doesn’t seem like a priority,” “it’s not what we’re looking for,” “can you send me a proposal?” “just send me an email,” “thanks, but we’re good,” “circle back in a few months”
-
----
-
-Now start listening for the conversation.
-
-Respond **only when the client says something**. Wait for client input and suggest what the salesperson should say in response.
-
-Return analysis in this JSON format:
+Return analysis in JSON format:
 {
   "suggestedResponses": [
-    {
-      "situation": "when client says X",
-      "response": "exact phrase/question to use",
-      "outcome": "expected result"
+    { 
+      "response": "exact phrase/question to use", 
     }
   ]
-}
-+ Do not include any markdown formatting, Only return raw JSON.`,
+}`,
               },
               {
                 role: 'user',
-                content: `LIVE SALES CONVERSATION (analyze for immediate action):
-
-${conversation}
-
-Provide instant analysis focusing on what the salesperson should do RIGHT NOW to influence this client's decision.`,
+                content: `LIVE SALES CONVERSATION:\n\n${conversation}\n\nThe client just spoke. Provide instant analysis for what the salesperson should respond RIGHT NOW.`,
               },
             ],
-            max_tokens: 1000,
-            temperature: 0.2,
+            max_tokens: 2500,
+            temperature: 0.6,
           }),
         }
       );
@@ -229,75 +173,192 @@ Provide instant analysis focusing on what the salesperson should do RIGHT NOW to
 
       const data = await response.json();
       const analysis = data.choices[0]?.message?.content || '{}';
+      const cleaned = analysis
+        .trim()
+        .replace(/^```json?/, '')
+        .replace(/```$/, '');
+      const parsedAnalysis = JSON.parse(cleaned);
 
-      try {
-        const cleaned = analysis
-          .trim()
-          .replace(/^```json/, '')
-          .replace(/^```/, '')
-          .replace(/```$/, '');
+      setAnalysisHistory((prev) => [
+        ...prev.slice(-4), // Keep last 4 analyses
+        {
+          timestamp: new Date(),
+          suggestedResponses: parsedAnalysis?.suggestedResponses || [],
+          triggerText: clientAccumulatedText, // Store what client said that triggered this
+        },
+      ]);
 
-        const parsedAnalysis = JSON.parse(cleaned);
-
-        console.log('parsedAnalysis', parsedAnalysis);
-
-        // Store analysis history for reference
-        setAnalysisHistory((prev) => [
-          ...prev.slice(-4), // Keep last 5 analyses
-          {
-            timestamp: new Date(),
-            suggestedResponses: parsedAnalysis?.suggestedResponses || [],
-          },
-        ]);
-      } catch (parseError) {
-        console.error('Error parsing analysis:', parseError);
-        setError('Failed to parse AI analysis');
-      }
-
-      setIsAnalyzing(false);
+      // Update the last analyzed client text
+      setLastAnalyzedClientText(clientAccumulatedText);
     } catch (error) {
       console.error('Error analyzing conversation:', error);
       setError(`Analysis failed: ${error.message}`);
+    } finally {
       setIsAnalyzing(false);
     }
-  };
+  }, [
+    conversation,
+    openaiApiKey,
+    isListening,
+    setIsAnalyzing,
+    clientAccumulatedText,
+  ]);
 
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case 'Critical':
-        return '#ff0000';
-      case 'High':
-        return '#ff4444';
-      case 'Medium':
-        return '#ff8800';
-      case 'Low':
-        return '#4CAF50';
-      default:
-        return '#666';
+  // Client-triggered analysis effect
+  useEffect(() => {
+    if (
+      !isListening ||
+      !conversation ||
+      !openaiApiKey ||
+      !clientAccumulatedText
+    )
+      return;
+
+    // Check if client has said something new
+    const clientTextChanged = clientAccumulatedText !== lastAnalyzedClientText;
+    const hasMinimumContent = clientAccumulatedText.trim().length > 10; // At least 10 characters
+
+    // Only trigger analysis when:
+    // 1. Client text has changed (new client speech)
+    // 2. There's meaningful content
+    // 3. Enough time has passed since last analysis
+    const timeSinceLastAnalysis = Date.now() - lastAnalysisTimeRef.current;
+    const enoughTimePassed = timeSinceLastAnalysis > 2000; // 2 seconds minimum
+
+    if (clientTextChanged && hasMinimumContent && enoughTimePassed) {
+      console.log('🎯 Client spoke - triggering AI analysis...');
+
+      // Clear any pending analysis
+      if (analysisTimeoutRef.current) clearTimeout(analysisTimeoutRef.current);
+
+      // Trigger analysis after a short delay to ensure client finished speaking
+      analysisTimeoutRef.current = setTimeout(analyzeConversation, 1000);
     }
-  };
 
-  const getPriorityIcon = (priority) => {
-    switch (priority) {
-      case 'Critical':
-        return '🚨';
-      case 'High':
-        return '⚡';
-      case 'Medium':
-        return '⚠️';
-      case 'Low':
-        return '💡';
-      default:
-        return '📝';
+    return () => {
+      if (analysisTimeoutRef.current) clearTimeout(analysisTimeoutRef.current);
+    };
+  }, [
+    clientAccumulatedText,
+    lastAnalyzedClientText,
+    analyzeConversation,
+    isListening,
+    openaiApiKey,
+    conversation,
+  ]);
+
+  // Update error state
+  useEffect(() => {
+    setError(
+      isListening && !openaiApiKey
+        ? 'OpenAI API key required for real-time analysis. Please configure in Settings.'
+        : ''
+    );
+  }, [isListening, openaiApiKey]);
+
+  const renderContent = () => {
+    if (!openaiApiKey)
+      return (
+        <div className="no-api-key">
+          <p>⚙️ OpenAI API key required for real-time sales coaching.</p>
+          <p>Configure your API key in Settings to get live assistance.</p>
+        </div>
+      );
+
+    if (!isListening)
+      return (
+        <div className="not-listening">
+          <p>
+            🎤 Start the conversation analysis to get real-time sales coaching.
+          </p>
+          <p>
+            I'll analyze the conversation when the CLIENT speaks and provide
+            instant suggestions for your response.
+          </p>
+        </div>
+      );
+
+    if (error)
+      return (
+        <div className="analysis-error">
+          <p>❌ {error}</p>
+          {openaiApiKey && isListening && (
+            <button
+              onClick={analyzeConversation}
+              className="retry-btn"
+              disabled={isAnalyzing}
+            >
+              Retry Analysis
+            </button>
+          )}
+        </div>
+      );
+
+    // Show all analysis history
+    if (analysisHistory.length > 0) {
+      return (
+        <div className="responses-section">
+          <h4>💬 AI Coaching History</h4>
+          <p className="coaching-note">
+            🎯 Analysis triggers when client speaks
+          </p>
+          <div className="responses-history">
+            {analysisHistory.map((analysis, historyIndex) => (
+              <div key={historyIndex} className="analysis-block">
+                <div className="analysis-timestamp">
+                  {analysis.timestamp.toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })}
+                  {historyIndex === analysisHistory.length - 1 && (
+                    <span className="latest-badge">Latest</span>
+                  )}
+                  {isAnalyzing &&
+                    historyIndex === analysisHistory.length - 1 && (
+                      <span className="analyzing-badge">🔄 Updating...</span>
+                    )}
+                </div>
+                <div className="responses-list">
+                  {analysis.suggestedResponses?.map(
+                    (response, responseIndex) => (
+                      <div key={responseIndex} className="response-item">
+                        <p className="response-text">
+                          <strong>You respond:</strong> "{response?.response}"
+                        </p>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Auto-scroll to bottom for new responses */}
+          <div ref={(el) => el?.scrollIntoView({ behavior: 'smooth' })} />
+        </div>
+      );
     }
-  };
 
-  const getLatestInsights = () => {
-    if (analysisHistory.length === 0) return null;
-    return analysisHistory[analysisHistory.length - 1];
-  };
+    // Loading state
+    if (isAnalyzing) {
+      return (
+        <div className="loading-analysis">
+          <div className="loading-spinner"></div>
+          <p>Client spoke - analyzing for your next response...</p>
+        </div>
+      );
+    }
 
-  const latestInsights = getLatestInsights();
+    // Waiting state
+    return (
+      <div className="waiting-for-content">
+        <p>🎧 Listening for client speech...</p>
+        <p>I'll provide coaching suggestions when the CLIENT speaks.</p>
+        <p>Waiting for client to say something...</p>
+      </div>
+    );
+  };
 
   return (
     <div className="sales-suggestions-panel">
@@ -306,10 +367,12 @@ Provide instant analysis focusing on what the salesperson should do RIGHT NOW to
         <div className="panel-controls">
           <div className="live-status">
             {isListening && isAnalyzing && (
-              <span className="analyzing-badge">🔴 Analyzing...</span>
+              <span className="analyzing-badge">
+                🔴 Analyzing Client Speech...
+              </span>
             )}
             {isListening && !isAnalyzing && (
-              <span className="live-badge">✅ Live</span>
+              <span className="live-badge">✅ Waiting for Client</span>
             )}
           </div>
           <button
@@ -325,469 +388,333 @@ Provide instant analysis focusing on what the salesperson should do RIGHT NOW to
           </button>
         </div>
       </div>
-
-      <div className="panel-content">
-        {!openaiApiKey && (
-          <div className="no-api-key">
-            <p>⚙️ OpenAI API key required for real-time sales coaching.</p>
-            <p>Configure your API key in Settings to get live assistance.</p>
-          </div>
-        )}
-
-        {!isListening && openaiApiKey && (
-          <div className="not-listening">
-            <p>
-              🎤 Start the conversation analysis to get real-time sales
-              coaching.
-            </p>
-            <p>
-              I'll analyze the conversation as it happens and provide instant
-              suggestions.
-            </p>
-          </div>
-        )}
-
-        {isAnalyzing && openaiApiKey && (
-          <div className="loading-analysis">
-            <div className="loading-spinner"></div>
-            <p>Analyzing conversation for immediate insights...</p>
-          </div>
-        )}
-
-        {error && (
-          <div className="analysis-error">
-            <p>❌ {error}</p>
-            {openaiApiKey && isListening && (
-              <button
-                onClick={analyzeConversation}
-                className="retry-btn"
-                disabled={isAnalyzing}
-              >
-                Retry Analysis
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Suggested Responses Section */}
-        {latestInsights && latestInsights.suggestedResponses.length > 0 && (
-          <div className="responses-section">
-            <h4>💬 Smart Responses</h4>
-            <div className="responses-list">
-              {latestInsights.suggestedResponses.map((response, index) => (
-                <div key={index} className="response-item">
-                  <p className="response-situation">
-                    <strong>If client says:</strong> "{response.situation}"
-                  </p>
-                  <p className="response-text">
-                    <strong>You respond:</strong> "{response.response}"
-                  </p>
-                  <p className="response-outcome">
-                    <strong>Expected outcome:</strong> {response.outcome}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {isListening &&
-          !suggestions.length &&
-          !obligations.length &&
-          !isAnalyzing &&
-          !error &&
-          openaiApiKey && (
-            <div className="waiting-for-content">
-              <p>🎧 Listening to your conversation...</p>
-              <p>
-                I'll provide real-time coaching as the conversation develops.
-              </p>
-              <p>Keep talking - insights coming soon!</p>
-            </div>
-          )}
-      </div>
+      <div className="panel-content">{renderContent()}</div>
     </div>
   );
 };
 
-function App() {
-  const [isListening, setIsListening] = useState(false);
-  const [clientTranscript, setClientTranscript] = useState('');
-  const [yourTranscript, setYourTranscript] = useState('');
-  const [combinedConversation, setCombinedConversation] = useState('');
-  const [error, setError] = useState('');
-  const [audioStatus, setAudioStatus] = useState('Ready');
-  const [deepgramApiKey, setDeepgramApiKey] = useState('');
-  const [showSettings, setShowSettings] = useState(false);
+// Custom hooks for better state management
+const useAudioDevices = () => {
   const [audioDevices, setAudioDevices] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState('');
-  const [isElectron, setIsElectron] = useState(false);
+
+  const loadAudioDevices = useCallback(async () => {
+    try {
+      const devices = await window.electronAPI.getAudioDevices();
+      if (devices.error) throw new Error(devices.error);
+
+      setAudioDevices(devices);
+      const defaultDevice = devices.find((d) => d.isDefault) || devices[0];
+      if (defaultDevice) setSelectedDevice(defaultDevice.id);
+    } catch (error) {
+      console.error('Error loading audio devices:', error);
+      throw error;
+    }
+  }, []);
+
+  return { audioDevices, selectedDevice, setSelectedDevice, loadAudioDevices };
+};
+
+const useApiKeys = () => {
+  const [deepgramApiKey, setDeepgramApiKey] = useState('');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+
+  useEffect(() => {
+    const savedDeepgram = localStorage.getItem('deepgramApiKey');
+    const savedOpenai = localStorage.getItem('openaiApiKey');
+    if (savedDeepgram) setDeepgramApiKey(savedDeepgram);
+    if (savedOpenai) setOpenaiApiKey(savedOpenai);
+  }, []);
+
+  const saveApiKeys = useCallback(() => {
+    if (!deepgramApiKey.trim())
+      throw new Error('Please enter a valid Deepgram API key');
+    localStorage.setItem('deepgramApiKey', deepgramApiKey.trim());
+    if (openaiApiKey.trim())
+      localStorage.setItem('openaiApiKey', openaiApiKey.trim());
+  }, [deepgramApiKey, openaiApiKey]);
+
+  return {
+    deepgramApiKey,
+    setDeepgramApiKey,
+    openaiApiKey,
+    setOpenaiApiKey,
+    saveApiKeys,
+  };
+};
+
+const useConversation = () => {
+  const [conversationHistory, setConversationHistory] = useState([]);
   const [currentClientInterim, setCurrentClientInterim] = useState('');
   const [currentYourInterim, setCurrentYourInterim] = useState('');
   const [clientAccumulatedText, setClientAccumulatedText] = useState('');
   const [yourAccumulatedText, setYourAccumulatedText] = useState('');
-  const [hasStartedTranscription, setHasStartedTranscription] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(true);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [openaiApiKey, setOpenaiApiKey] = useState('');
-
-  // New states for unified conversation display
-  const [conversationHistory, setConversationHistory] = useState([]);
-  const [currentSpeaker, setCurrentSpeaker] = useState(null);
+  const [combinedConversation, setCombinedConversation] = useState('');
   const [lastClientFinal, setLastClientFinal] = useState('');
   const [lastYourFinal, setLastYourFinal] = useState('');
+  const [hasStartedTranscription, setHasStartedTranscription] = useState(false);
 
-  // Separate WebSocket connections for client and microphone
-  const clientSocketRef = useRef(null);
-  const micSocketRef = useRef(null);
-  const audioListenerRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const processorRef = useRef(null);
-  const streamRef = useRef(null);
-  const conversationEndRef = useRef(null);
-
-  // Check if running in Electron
+  // Handle final transcripts
   useEffect(() => {
-    const checkElectron = () => {
-      const isElectronEnv =
-        window.electronAPI ||
-        window.process?.type === 'renderer' ||
-        window.navigator?.userAgent?.indexOf('Electron') !== -1 ||
-        window.require;
-
-      if (isElectronEnv) {
-        setIsElectron(true);
-        setTimeout(() => {
-          if (window.electronAPI) {
-            loadAudioDevices();
-            audioListenerRef.current = (audioData) => {
-              if (
-                clientSocketRef.current &&
-                clientSocketRef.current.readyState === WebSocket.OPEN
-              ) {
-                clientSocketRef.current.send(audioData);
-              }
-            };
-            window.electronAPI.onAudioData(audioListenerRef.current);
-          }
-        }, 300);
-      } else {
-        setIsElectron(false);
-        setError('This app must be run as an Electron desktop application');
-      }
-    };
-
-    checkElectron();
-
-    const savedKey = localStorage.getItem('deepgramApiKey');
-    if (savedKey) {
-      setDeepgramApiKey(savedKey);
-    }
-
-    const savedOpenaiKey = localStorage.getItem('openaiApiKey');
-    if (savedOpenaiKey) {
-      setOpenaiApiKey(savedOpenaiKey);
-    }
-
-    return () => {
-      if (window.electronAPI && audioListenerRef.current) {
-        window.electronAPI.removeAudioDataListener();
-      }
-    };
-  }, []);
-
-  // Auto-scroll to bottom of conversation
-  useEffect(() => {
-    if (conversationEndRef.current) {
-      conversationEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [conversationHistory, currentClientInterim, currentYourInterim]);
-
-  // Handle final transcripts and update conversation history
-  useEffect(() => {
-    if (clientAccumulatedText !== lastClientFinal) {
-      if (clientAccumulatedText && clientAccumulatedText.trim()) {
-        const newText = clientAccumulatedText
-          .replace(lastClientFinal, '')
-          .trim();
+    const updateHistory = (text, lastFinal, setLastFinal, speaker) => {
+      if (text !== lastFinal && text?.trim()) {
+        const newText = text.replace(lastFinal, '').trim();
         if (newText) {
           setConversationHistory((prev) => [
             ...prev,
-            { speaker: 'Client', text: newText, timestamp: new Date() },
+            { speaker, text: newText, timestamp: new Date() },
           ]);
         }
+        setLastFinal(text);
       }
-      setLastClientFinal(clientAccumulatedText);
-    }
-  }, [clientAccumulatedText, lastClientFinal]);
+    };
 
-  useEffect(() => {
-    if (yourAccumulatedText !== lastYourFinal) {
-      if (yourAccumulatedText && yourAccumulatedText.trim()) {
-        const newText = yourAccumulatedText.replace(lastYourFinal, '').trim();
-        if (newText) {
-          setConversationHistory((prev) => [
-            ...prev,
-            { speaker: 'You', text: newText, timestamp: new Date() },
-          ]);
-        }
-      }
-      setLastYourFinal(yourAccumulatedText);
-    }
-  }, [yourAccumulatedText, lastYourFinal]);
+    updateHistory(
+      clientAccumulatedText,
+      lastClientFinal,
+      setLastClientFinal,
+      'Client'
+    );
+    updateHistory(yourAccumulatedText, lastYourFinal, setLastYourFinal, 'You');
+  }, [
+    clientAccumulatedText,
+    yourAccumulatedText,
+    lastClientFinal,
+    lastYourFinal,
+  ]);
 
-  // Update combined conversation for analysis
+  // Update combined conversation
   useEffect(() => {
     let combined = '';
-
-    // Add finalized conversation history
     conversationHistory.forEach((entry) => {
       combined += `${entry.speaker}: ${entry.text}\n\n`;
     });
-
-    // Add current interim text if any
-    if (currentClientInterim && currentClientInterim.trim()) {
+    if (currentClientInterim?.trim())
       combined += `Client: ${currentClientInterim.trim()}\n\n`;
-    }
-    if (currentYourInterim && currentYourInterim.trim()) {
+    if (currentYourInterim?.trim())
       combined += `You: ${currentYourInterim.trim()}\n\n`;
-    }
-
     setCombinedConversation(combined);
   }, [conversationHistory, currentClientInterim, currentYourInterim]);
 
-  const loadAudioDevices = async () => {
-    try {
-      setAudioStatus('Loading audio devices...');
-      const devices = await window.electronAPI.getAudioDevices();
+  const clearConversation = useCallback(() => {
+    setConversationHistory([]);
+    setCurrentClientInterim('');
+    setCurrentYourInterim('');
+    setClientAccumulatedText('');
+    setYourAccumulatedText('');
+    setCombinedConversation('');
+    setLastClientFinal('');
+    setLastYourFinal('');
+    setHasStartedTranscription(false);
+  }, []);
 
-      if (devices.error) {
-        setError(`Failed to load audio devices: ${devices.error}`);
-        return;
-      }
-
-      setAudioDevices(devices);
-      const defaultDevice = devices.find((d) => d.isDefault) || devices[0];
-      if (defaultDevice) {
-        setSelectedDevice(defaultDevice.id);
-      }
-      setAudioStatus('Audio devices loaded');
-    } catch (error) {
-      console.error('Error loading audio devices:', error);
-      setError(`Error loading audio devices: ${error.message}`);
-    }
+  return {
+    conversationHistory,
+    currentClientInterim,
+    setCurrentClientInterim,
+    currentYourInterim,
+    setCurrentYourInterim,
+    clientAccumulatedText,
+    setClientAccumulatedText,
+    yourAccumulatedText,
+    setYourAccumulatedText,
+    combinedConversation,
+    hasStartedTranscription,
+    setHasStartedTranscription,
+    clearConversation,
   };
+};
 
-  const setupAudioProcessing = async (stream, isClientAudio = true) => {
-    try {
-      const audioContext = new (window.AudioContext ||
-        window.webkitAudioContext)({
-        sampleRate: 16000,
-      });
+// Audio processing utilities
+const createDeepgramConnection = (apiKey, isClient, callbacks) => {
+  return new Promise((resolve, reject) => {
+    const wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=en&encoding=linear16&sample_rate=16000&channels=1&interim_results=true&punctuate=true&smart_format=true`;
+    const socket = new WebSocket(wsUrl, ['token', apiKey.trim()]);
 
-      if (audioContext.state === 'suspended') {
-        await audioContext.resume();
-      }
+    socket.onopen = () => {
+      console.log(
+        `Deepgram connected for ${isClient ? 'CLIENT' : 'MICROPHONE'}`
+      );
+      resolve(socket);
+    };
 
-      const source = audioContext.createMediaStreamSource(stream);
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-
-      processor.onaudioprocess = (event) => {
-        const targetSocket = isClientAudio
-          ? clientSocketRef.current
-          : micSocketRef.current;
-
-        if (targetSocket && targetSocket.readyState === WebSocket.OPEN) {
-          const inputBuffer = event.inputBuffer;
-          const inputData = inputBuffer.getChannelData(0);
-
-          const int16Array = new Int16Array(inputData.length);
-          for (let i = 0; i < inputData.length; i++) {
-            int16Array[i] = Math.max(
-              -32768,
-              Math.min(32767, inputData[i] * 32768)
-            );
-          }
-
-          targetSocket.send(int16Array.buffer);
-        }
-      };
-
-      source.connect(processor);
-      processor.connect(audioContext.destination);
-
-      if (isClientAudio) {
-        audioContextRef.current = audioContext;
-        processorRef.current = processor;
-        streamRef.current = stream;
-      }
-
-      return true; // Return success
-    } catch (error) {
-      console.error('Audio processing setup failed:', error);
-      throw error;
-    }
-  };
-
-  const initializeDeepgramConnection = (isClient = true) => {
-    return new Promise((resolve, reject) => {
+    socket.onmessage = (event) => {
       try {
-        const wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=en&encoding=linear16&sample_rate=16000&channels=1&interim_results=true&punctuate=true&smart_format=true`;
+        const data = JSON.parse(event.data);
+        const transcript = data.channel?.alternatives?.[0]?.transcript;
+        const isFinal = data.is_final;
 
-        const socket = new WebSocket(wsUrl, ['token', deepgramApiKey.trim()]);
-
-        socket.onopen = () => {
-          console.log(
-            `Deepgram WebSocket connected for ${
-              isClient ? 'CLIENT AUDIO (System/Desktop)' : 'YOUR MICROPHONE'
-            }`
-          );
-          resolve();
-        };
-
-        socket.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-
-            if (
-              data.channel &&
-              data.channel.alternatives &&
-              data.channel.alternatives[0]
-            ) {
-              const transcriptText = data.channel.alternatives[0].transcript;
-              const isFinal = data.is_final;
-
-              if (transcriptText && transcriptText.trim()) {
-                if (!hasStartedTranscription) {
-                  setHasStartedTranscription(true);
-                }
-
-                // IMPORTANT: isClient determines the audio source, not the order of speech
-                if (isClient) {
-                  // This is ALWAYS client audio (system/desktop capture)
-                  console.log(
-                    `CLIENT AUDIO: ${transcriptText} (Final: ${isFinal})`
-                  );
-                  if (isFinal) {
-                    setClientAccumulatedText((prev) => {
-                      const newText = transcriptText.trim();
-                      return prev ? prev + ' ' + newText : newText;
-                    });
-                    setCurrentClientInterim('');
-                  } else {
-                    setCurrentClientInterim(transcriptText.trim());
-                  }
-                } else {
-                  // This is ALWAYS your microphone audio
-                  console.log(
-                    `YOUR MIC: ${transcriptText} (Final: ${isFinal})`
-                  );
-                  if (isFinal) {
-                    setYourAccumulatedText((prev) => {
-                      const newText = transcriptText.trim();
-                      return prev ? prev + ' ' + newText : newText;
-                    });
-                    setCurrentYourInterim('');
-                  } else {
-                    setCurrentYourInterim(transcriptText.trim());
-                  }
-                }
-              }
-            }
-          } catch (parseError) {
-            console.error('Error parsing Deepgram response:', parseError);
-          }
-        };
-
-        socket.onerror = (error) => {
-          console.error(
-            `Deepgram WebSocket error for ${
-              isClient ? 'client' : 'microphone'
-            }:`,
-            error
-          );
-          reject(error);
-        };
-
-        socket.onclose = (event) => {
-          console.log(
-            `Deepgram WebSocket closed for ${
-              isClient ? 'client' : 'microphone'
-            }:`,
-            event.code,
-            event.reason
-          );
-        };
-
-        if (isClient) {
-          clientSocketRef.current = socket;
-        } else {
-          micSocketRef.current = socket;
+        if (transcript?.trim()) {
+          callbacks.onTranscript(transcript.trim(), isFinal, isClient);
         }
-
-        setTimeout(() => {
-          if (socket.readyState !== WebSocket.OPEN) {
-            reject(
-              new Error(
-                `Deepgram connection timeout for ${
-                  isClient ? 'client' : 'microphone'
-                }`
-              )
-            );
-          }
-        }, 10000);
       } catch (error) {
-        reject(error);
+        console.error('Error parsing Deepgram response:', error);
       }
-    });
+    };
+
+    socket.onerror = reject;
+    socket.onclose = (event) =>
+      console.log(
+        `Deepgram closed for ${isClient ? 'client' : 'microphone'}:`,
+        event.code
+      );
+
+    setTimeout(() => {
+      if (socket.readyState !== WebSocket.OPEN) {
+        reject(
+          new Error(
+            `Deepgram connection timeout for ${
+              isClient ? 'client' : 'microphone'
+            }`
+          )
+        );
+      }
+    }, 10000);
+  });
+};
+
+const setupAudioProcessing = async (stream, socket) => {
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+    sampleRate: 16000,
+  });
+  if (audioContext.state === 'suspended') await audioContext.resume();
+
+  const source = audioContext.createMediaStreamSource(stream);
+  const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+  processor.onaudioprocess = (event) => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      const inputData = event.inputBuffer.getChannelData(0);
+      const int16Array = new Int16Array(inputData.length);
+      for (let i = 0; i < inputData.length; i++) {
+        int16Array[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768));
+      }
+      socket.send(int16Array.buffer);
+    }
   };
 
-  const startListening = async () => {
-    console.log('=== START BUTTON CLICKED ===');
+  source.connect(processor);
+  processor.connect(audioContext.destination);
 
+  return { audioContext, processor, stream };
+};
+
+// Main App Component
+function App() {
+  const [isListening, setIsListening] = useState(false);
+  const [error, setError] = useState('');
+  const [audioStatus, setAudioStatus] = useState('Ready');
+  const [showSettings, setShowSettings] = useState(false);
+  const [isElectron, setIsElectron] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const { audioDevices, selectedDevice, setSelectedDevice, loadAudioDevices } =
+    useAudioDevices();
+  const {
+    deepgramApiKey,
+    setDeepgramApiKey,
+    openaiApiKey,
+    setOpenaiApiKey,
+    saveApiKeys,
+  } = useApiKeys();
+  const conversation = useConversation();
+
+  // Refs for audio management
+  const clientSocketRef = useRef(null);
+  const micSocketRef = useRef(null);
+  const audioResourcesRef = useRef({});
+  const conversationEndRef = useRef(null);
+
+  // Check Electron environment
+  useEffect(() => {
+    const isElectronEnv =
+      window.electronAPI ||
+      window.process?.type === 'renderer' ||
+      window.navigator?.userAgent?.indexOf('Electron') !== -1;
+
+    if (isElectronEnv) {
+      setIsElectron(true);
+      setTimeout(() => {
+        if (window.electronAPI) {
+          loadAudioDevices();
+          window.electronAPI.onAudioData((audioData) => {
+            if (clientSocketRef.current?.readyState === WebSocket.OPEN) {
+              clientSocketRef.current.send(audioData);
+            }
+          });
+        }
+      }, 300);
+    } else {
+      setIsElectron(false);
+      setError('This app must be run as an Electron desktop application');
+    }
+
+    return () => window.electronAPI?.removeAudioDataListener?.();
+  }, [loadAudioDevices]);
+
+  // Auto-scroll to conversation bottom
+  useEffect(() => {
+    conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [
+    conversation.conversationHistory,
+    conversation.currentClientInterim,
+    conversation.currentYourInterim,
+  ]);
+
+  const handleTranscript = useCallback(
+    (transcript, isFinal, isClient) => {
+      if (!conversation.hasStartedTranscription) {
+        conversation.setHasStartedTranscription(true);
+      }
+
+      if (isClient) {
+        if (isFinal) {
+          conversation.setClientAccumulatedText((prev) =>
+            prev ? `${prev} ${transcript}` : transcript
+          );
+          conversation.setCurrentClientInterim('');
+        } else {
+          conversation.setCurrentClientInterim(transcript);
+        }
+      } else {
+        if (isFinal) {
+          conversation.setYourAccumulatedText((prev) =>
+            prev ? `${prev} ${transcript}` : transcript
+          );
+          conversation.setCurrentYourInterim('');
+        } else {
+          conversation.setCurrentYourInterim(transcript);
+        }
+      }
+    },
+    [conversation]
+  );
+
+  const startAudioCapture = useCallback(async () => {
     try {
       setError('');
       setAudioStatus('Starting...');
-
-      // Clear all transcript states
-      setClientTranscript('');
-      setYourTranscript('');
-      setClientAccumulatedText('');
-      setYourAccumulatedText('');
-      setCurrentClientInterim('');
-      setCurrentYourInterim('');
-      setCombinedConversation('');
-      setConversationHistory([]);
-      setCurrentSpeaker(null);
-      setLastClientFinal('');
-      setLastYourFinal('');
-      setHasStartedTranscription(false);
+      conversation.clearConversation();
 
       if (!deepgramApiKey.trim()) {
-        setError('Please enter your Deepgram API key first (click Settings)');
-        return;
+        throw new Error(
+          'Please enter your Deepgram API key first (click Settings)'
+        );
       }
 
       setIsListening(true);
 
-      // Handle browser-capture for desktop audio (CLIENT AUDIO)
+      const transcriptCallbacks = { onTranscript: handleTranscript };
+
+      // Setup client audio (system/desktop)
       if (selectedDevice === 'browser-capture') {
-        console.log('=== USING DESKTOP CAPTURE FOR CLIENT AUDIO ===');
-        setAudioStatus('Getting available screens and windows...');
+        setAudioStatus('Getting desktop capture...');
+        const sources = await window.electronAPI.getDesktopSources();
+        const primarySource =
+          sources.find((s) => s.name === 'Entire Screen') || sources[0];
 
         try {
-          const sources = await window.electronAPI.getDesktopSources();
-
-          if (!sources || sources.length === 0) {
-            throw new Error('No screen sources available');
-          }
-
-          const primarySource =
-            sources.find((source) => source.name === 'Entire Screen') ||
-            sources[0];
-
-          setAudioStatus('Accessing screen capture...');
-
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
               mandatory: {
@@ -799,252 +726,107 @@ function App() {
               mandatory: {
                 chromeMediaSource: 'desktop',
                 chromeMediaSourceId: primarySource.id,
-                minWidth: 1280,
-                maxWidth: 1920,
-                minHeight: 720,
-                maxHeight: 1080,
               },
             },
           });
 
-          const audioTracks = stream.getAudioTracks();
-          if (audioTracks.length === 0) {
+          if (stream.getAudioTracks().length === 0) {
             stream.getTracks().forEach((track) => track.stop());
-
-            console.log('=== FALLBACK TO ELECTRON AUDIO CAPTURE ===');
             const result = await window.electronAPI.startAudioCapture(
               'system-audio'
             );
-            if (result.success) {
-              console.log('=== INITIALIZING CLIENT DEEPGRAM CONNECTION ===');
-              await initializeDeepgramConnection(true); // TRUE = Client audio
-              setAudioStatus(
-                '✅ Desktop capture active - starting microphone...'
-              );
-            } else {
-              throw new Error(
-                'Could not access desktop audio. Please enable system audio sharing.'
-              );
-            }
+            if (!result.success)
+              throw new Error('Could not access desktop audio');
           } else {
-            console.log('=== DESKTOP CAPTURE SUCCESSFUL ===');
-            setAudioStatus('Processing desktop audio...');
-            console.log('=== INITIALIZING CLIENT DEEPGRAM CONNECTION ===');
-            await initializeDeepgramConnection(true); // TRUE = Client audio
-            await setupAudioProcessing(stream, true); // TRUE = client audio
-            setAudioStatus(
-              '✅ Desktop capture active - starting microphone...'
+            clientSocketRef.current = await createDeepgramConnection(
+              deepgramApiKey,
+              true,
+              transcriptCallbacks
+            );
+            audioResourcesRef.current.client = await setupAudioProcessing(
+              stream,
+              clientSocketRef.current
             );
           }
-
-          // CRITICAL: Start microphone for YOUR voice with delay
-          console.log('=== SCHEDULING MICROPHONE SETUP ===');
-          setTimeout(async () => {
-            try {
-              console.log('=== STARTING MICROPHONE FOR YOUR VOICE ===');
-              await startMicrophoneCapture();
-              setAudioStatus(
-                '✅ Live conversation analysis active (Desktop + Mic)'
-              );
-            } catch (micError) {
-              console.error('Microphone setup failed:', micError);
-              setAudioStatus(
-                '✅ Live conversation analysis active (Desktop only)'
-              );
-            }
-          }, 2000); // 2 second delay
-
-          console.log('=== DESKTOP CAPTURE + MICROPHONE SETUP INITIATED ===');
-          return;
-        } catch (desktopCaptureError) {
-          console.error('Desktop capture failed:', desktopCaptureError);
-          setError(`Desktop capture failed: ${desktopCaptureError.message}`);
-          setIsListening(false);
-          return;
+        } catch (desktopError) {
+          throw new Error(`Desktop capture failed: ${desktopError.message}`);
         }
-      }
-
-      // Handle microphone-test for testing (CLIENT AUDIO via mic)
-      if (selectedDevice === 'microphone-test') {
-        console.log('=== USING MICROPHONE TEST MODE ===');
-        setAudioStatus('Requesting microphone access...');
-
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              sampleRate: 16000,
-              channelCount: 1,
-              echoCancellation: false,
-              noiseSuppression: false,
-              autoGainControl: false,
-            },
-          });
-
-          console.log('=== MIC TEST: INITIALIZING CLIENT DEEPGRAM ===');
-          setAudioStatus('Processing microphone audio...');
-          await initializeDeepgramConnection(true); // TRUE = Client audio (via mic test)
-          await setupAudioProcessing(stream, true); // TRUE = client audio
-
-          // Start second microphone for your voice
-          setTimeout(async () => {
-            try {
-              console.log('=== MIC TEST: STARTING YOUR MICROPHONE ===');
-              await startMicrophoneCapture();
-              setAudioStatus(
-                '✅ Live conversation analysis active (Mic Test + Mic)'
-              );
-            } catch (micError) {
-              console.error('Microphone setup failed:', micError);
-              setAudioStatus(
-                '✅ Live conversation analysis active (Mic Test only)'
-              );
-            }
-          }, 2000);
-
-          console.log('=== MICROPHONE TEST MODE ACTIVE ===');
-          return;
-        } catch (micError) {
-          console.error('Microphone access failed:', micError);
-          setError(
-            `Microphone access failed: ${micError.message}. Please allow microphone permissions.`
-          );
-          setIsListening(false);
-          return;
-        }
-      }
-
-      // Handle system audio devices (CLIENT AUDIO)
-      if (window.electronAPI && selectedDevice !== 'browser-capture') {
-        console.log(
-          '=== USING ELECTRON SYSTEM AUDIO CAPTURE ===',
-          selectedDevice
+      } else if (selectedDevice === 'microphone-test') {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: false,
+          },
+        });
+        clientSocketRef.current = await createDeepgramConnection(
+          deepgramApiKey,
+          true,
+          transcriptCallbacks
         );
-        setAudioStatus('Connecting to Deepgram for client audio...');
-
-        console.log('=== INITIALIZING CLIENT DEEPGRAM CONNECTION ===');
-        await initializeDeepgramConnection(true); // TRUE = Client audio
-
-        setAudioStatus('Starting system audio capture...');
+        audioResourcesRef.current.client = await setupAudioProcessing(
+          stream,
+          clientSocketRef.current
+        );
+      } else if (window.electronAPI) {
+        clientSocketRef.current = await createDeepgramConnection(
+          deepgramApiKey,
+          true,
+          transcriptCallbacks
+        );
         const result = await window.electronAPI.startAudioCapture(
           selectedDevice
         );
-
-        if (result.error) {
-          throw new Error(result.error);
-        }
-
-        console.log('=== SYSTEM AUDIO ACTIVE, SCHEDULING MICROPHONE ===');
-        // Start microphone for YOUR voice
-        setTimeout(async () => {
-          try {
-            console.log('=== STARTING YOUR MICROPHONE ===');
-            await startMicrophoneCapture();
-            setAudioStatus(
-              '✅ Live conversation analysis active (System + Mic)'
-            );
-          } catch (micError) {
-            console.error('Microphone setup failed:', micError);
-            setAudioStatus(
-              '✅ Live conversation analysis active (System only)'
-            );
-          }
-        }, 2000);
-      } else {
-        throw new Error('No audio capture method available');
+        if (result.error) throw new Error(result.error);
       }
+
+      // Setup microphone after delay
+      setTimeout(async () => {
+        try {
+          const micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              sampleRate: 16000,
+              channelCount: 1,
+              echoCancellation: true,
+            },
+          });
+          micSocketRef.current = await createDeepgramConnection(
+            deepgramApiKey,
+            false,
+            transcriptCallbacks
+          );
+          audioResourcesRef.current.microphone = await setupAudioProcessing(
+            micStream,
+            micSocketRef.current
+          );
+          setAudioStatus('✅ Live conversation analysis active');
+        } catch (micError) {
+          console.error('Microphone setup failed:', micError);
+          setAudioStatus('✅ Live conversation analysis active (System only)');
+        }
+      }, 200);
     } catch (error) {
-      console.error('Error in startListening:', error);
+      console.error('Error starting audio capture:', error);
       setError(error.message);
       setAudioStatus('❌ Error occurred');
       setIsListening(false);
     }
-  };
+  }, [deepgramApiKey, selectedDevice, conversation, handleTranscript]);
 
-  const startMicrophoneCapture = async () => {
-    try {
-      console.log('=== INITIALIZING YOUR MICROPHONE ===');
-      setAudioStatus('Starting microphone for your voice...');
-
-      // CRITICAL: Initialize microphone Deepgram connection with FALSE parameter
-      console.log('=== CREATING SEPARATE DEEPGRAM CONNECTION FOR YOUR MIC ===');
-      await initializeDeepgramConnection(false); // FALSE = Your microphone audio
-      console.log('=== YOUR MICROPHONE DEEPGRAM CONNECTION ESTABLISHED ===');
-
-      // Setup microphone capture
-      const micSuccess = await setupMicrophoneCapture();
-      if (!micSuccess) {
-        throw new Error('Failed to setup microphone audio processing');
+  const stopAudioCapture = useCallback(async () => {
+    [clientSocketRef, micSocketRef].forEach((ref) => {
+      if (ref.current) {
+        ref.current.close(1000, 'Manual stop');
+        ref.current = null;
       }
+    });
 
-      console.log('=== YOUR MICROPHONE CAPTURE SETUP COMPLETE ===');
-      return true;
-    } catch (error) {
-      console.error('=== MICROPHONE CAPTURE FAILED ===', error);
-      // Don't fail the whole process if microphone fails
-      setError(
-        `Microphone failed: ${error.message}. Client audio will still work.`
-      );
-      return false;
-    }
-  };
-
-  const setupMicrophoneCapture = async () => {
-    try {
-      console.log('=== REQUESTING YOUR MICROPHONE PERMISSIONS ===');
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: 16000,
-          channelCount: 1,
-          echoCancellation: true, // Enable for your voice
-          noiseSuppression: true, // Enable for your voice
-          autoGainControl: true, // Enable for your voice
-        },
-      });
-
-      console.log('=== YOUR MICROPHONE STREAM OBTAINED ===');
-      console.log('=== SETTING UP YOUR MICROPHONE AUDIO PROCESSING ===');
-      const success = await setupAudioProcessing(stream, false); // FALSE = your microphone
-      console.log('=== YOUR MICROPHONE AUDIO PROCESSING COMPLETE ===');
-      return success;
-    } catch (error) {
-      console.error('=== YOUR MICROPHONE SETUP FAILED ===', error);
-      if (error.name === 'NotAllowedError') {
-        throw new Error(
-          `Microphone access denied. Please allow microphone permissions in your browser.`
-        );
-      } else if (error.name === 'NotFoundError') {
-        throw new Error(`No microphone found. Please connect a microphone.`);
-      } else {
-        throw new Error(`Microphone access failed: ${error.message}`);
-      }
-    }
-  };
-
-  const stopListening = async () => {
-    if (clientSocketRef.current) {
-      clientSocketRef.current.close(1000, 'Manual stop');
-      clientSocketRef.current = null;
-    }
-
-    if (micSocketRef.current) {
-      micSocketRef.current.close(1000, 'Manual stop');
-      micSocketRef.current = null;
-    }
-
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
-    }
-
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
+    Object.values(audioResourcesRef.current).forEach((resources) => {
+      resources?.processor?.disconnect();
+      resources?.audioContext?.close();
+      resources?.stream?.getTracks().forEach((track) => track.stop());
+    });
+    audioResourcesRef.current = {};
 
     if (window.electronAPI) {
       try {
@@ -1056,48 +838,25 @@ function App() {
 
     setIsListening(false);
     setAudioStatus('Stopped');
-    setCurrentClientInterim('');
-    setCurrentYourInterim('');
-    setCurrentSpeaker(null);
-  };
+    conversation.setCurrentClientInterim('');
+    conversation.setCurrentYourInterim('');
+  }, [conversation]);
 
-  const clearTranscript = () => {
-    setClientTranscript('');
-    setYourTranscript('');
-    setClientAccumulatedText('');
-    setYourAccumulatedText('');
-    setCurrentClientInterim('');
-    setCurrentYourInterim('');
-    setCombinedConversation('');
-    setConversationHistory([]);
-    setCurrentSpeaker(null);
-    setLastClientFinal('');
-    setLastYourFinal('');
-    setHasStartedTranscription(false);
-  };
-
-  const saveApiKey = () => {
-    let hasError = false;
-
-    if (deepgramApiKey.trim()) {
-      localStorage.setItem('deepgramApiKey', deepgramApiKey.trim());
-    } else {
-      setError('Please enter a valid Deepgram API key');
-      hasError = true;
-    }
-
-    if (openaiApiKey.trim()) {
-      localStorage.setItem('openaiApiKey', openaiApiKey.trim());
-    }
-
-    if (!hasError) {
+  const handleSaveSettings = useCallback(() => {
+    try {
+      saveApiKeys();
       setShowSettings(false);
       setError('');
+    } catch (error) {
+      setError(error.message);
     }
-  };
+  }, [saveApiKeys]);
 
   const renderConversation = () => {
-    if (!hasStartedTranscription && conversationHistory.length === 0) {
+    if (
+      !conversation.hasStartedTranscription &&
+      conversation.conversationHistory.length === 0
+    ) {
       return (
         <div className="conversation-placeholder">
           <p>🎤 Conversation will appear here once you start the analysis...</p>
@@ -1114,7 +873,7 @@ function App() {
 
     return (
       <div className="conversation-messages">
-        {conversationHistory.map((entry, index) => (
+        {conversation.conversationHistory.map((entry, index) => (
           <div
             key={index}
             className={`message ${entry.speaker.toLowerCase()}-message`}
@@ -1136,29 +895,35 @@ function App() {
           </div>
         ))}
 
-        {/* Show current interim results */}
-        {currentClientInterim && (
-          <div className="message client-message interim">
-            <div className="message-header">
-              <span className="speaker-label client">🗣️ Client</span>
-              <span className="interim-label">typing...</span>
-            </div>
-            <div className="message-text">
-              <StreamingText text={currentClientInterim} showCursor={true} />
-            </div>
-          </div>
-        )}
-
-        {currentYourInterim && (
-          <div className="message you-message interim">
-            <div className="message-header">
-              <span className="speaker-label you">🎤 You</span>
-              <span className="interim-label">typing...</span>
-            </div>
-            <div className="message-text">
-              <StreamingText text={currentYourInterim} showCursor={true} />
-            </div>
-          </div>
+        {[
+          {
+            interim: conversation.currentClientInterim,
+            speaker: 'Client',
+            label: '🗣️ Client',
+          },
+          {
+            interim: conversation.currentYourInterim,
+            speaker: 'You',
+            label: '🎤 You',
+          },
+        ].map(
+          ({ interim, speaker, label }, idx) =>
+            interim && (
+              <div
+                key={idx}
+                className={`message ${speaker.toLowerCase()}-message interim`}
+              >
+                <div className="message-header">
+                  <span className={`speaker-label ${speaker.toLowerCase()}`}>
+                    {label}
+                  </span>
+                  <span className="interim-label">typing...</span>
+                </div>
+                <div className="message-text">
+                  <StreamingText text={interim} showCursor={true} />
+                </div>
+              </div>
+            )
         )}
 
         <div ref={conversationEndRef} />
@@ -1172,7 +937,6 @@ function App() {
         <div className="error-message">
           <h2>❌ Electron Required</h2>
           <p>This application must be run as an Electron desktop app.</p>
-          <p>Please build and run the Electron version.</p>
         </div>
       </div>
     );
@@ -1222,8 +986,7 @@ function App() {
                 rel="noopener noreferrer"
               >
                 OpenAI Platform
-              </a>{' '}
-              (required for live sales coaching)
+              </a>
             </p>
           </div>
 
@@ -1254,14 +1017,10 @@ function App() {
                 🔄
               </button>
             </div>
-            <p className="help-text">
-              Desktop Capture works best for YouTube/system audio. Microphone
-              Test for testing with just microphone.
-            </p>
           </div>
 
           <div className="settings-buttons">
-            <button onClick={saveApiKey} className="save-btn">
+            <button onClick={handleSaveSettings} className="save-btn">
               💾 Save & Close
             </button>
             <button
@@ -1307,21 +1066,20 @@ function App() {
         </div>
 
         <div className="controls">
-          {!isListening ? (
-            <button
-              className="start-btn"
-              onClick={startListening}
-              disabled={!deepgramApiKey.trim() || !selectedDevice}
-            >
-              ▶️ Start Live Coaching
-            </button>
-          ) : (
-            <button className="stop-btn" onClick={stopListening}>
-              ⏹️ Stop Analysis
-            </button>
-          )}
+          <button
+            className={isListening ? 'stop-btn' : 'start-btn'}
+            onClick={isListening ? stopAudioCapture : startAudioCapture}
+            disabled={
+              !isListening && (!deepgramApiKey.trim() || !selectedDevice)
+            }
+          >
+            {isListening ? '⏹️ Stop Analysis' : '▶️ Start Live Coaching'}
+          </button>
 
-          <button className="clear-btn" onClick={clearTranscript}>
+          <button
+            className="clear-btn"
+            onClick={conversation.clearConversation}
+          >
             🗑️ Clear
           </button>
 
@@ -1357,12 +1115,13 @@ function App() {
               <div className="panel-header">
                 <h3>💬 Live Conversation</h3>
                 <div className="conversation-stats">
-                  {conversationHistory.length > 0 && (
+                  {conversation.conversationHistory.length > 0 && (
                     <span className="message-count">
-                      {conversationHistory.length} messages
+                      {conversation.conversationHistory.length} messages
                     </span>
                   )}
-                  {(currentClientInterim || currentYourInterim) && (
+                  {(conversation.currentClientInterim ||
+                    conversation.currentYourInterim) && (
                     <span className="live-indicator">🔴 Live</span>
                   )}
                 </div>
@@ -1374,12 +1133,15 @@ function App() {
 
         {showSuggestions && (
           <SalesSuggestionsPanel
-            conversation={combinedConversation}
+            conversation={conversation.combinedConversation}
             isAnalyzing={isAnalyzing}
             openaiApiKey={openaiApiKey}
             setIsAnalyzing={setIsAnalyzing}
             isListening={isListening}
             onClose={() => setShowSuggestions(false)}
+            // Add these new props:
+            conversationHistory={conversation.conversationHistory}
+            clientAccumulatedText={conversation.clientAccumulatedText}
           />
         )}
       </main>
